@@ -1,28 +1,223 @@
-# ₿ Bitcoin Real-time Price & Market Cap Tracker
+# ₿ Bitcoin Data Platform — Azure Databricks Lakehouse + FastAPI
 
-##  Project Overview
-This project implements a robust, scalable, and fully automated data pipeline to ingest, process, and analyze real-time Bitcoin price and market capitalization data. Leveraging the power of **Azure Databricks**, **Delta Lake**, and **Azure Data Lake Storage Gen2**, this solution provides historical trends and aggregates for analytical insights, following the industry-standard **Medallion Architecture** (Bronze, Silver, Gold layers).
+An end-to-end data platform that ingests Bitcoin market data from the **CoinGecko API**, refines it through a
+**Medallion lakehouse** (raw → bronze → silver → gold) on **Azure Databricks + ADLS Gen2**, models it as a
+**star schema**, publishes it to **Azure SQL Database**, and serves it through a **rate-limited, Redis-cached
+REST API** built with **FastAPI**.
 
-###  Key Technologies Used
-* **Azure Databricks:** Unified analytics platform for ETL and data processing.
-* **Delta Lake:** Open-source storage layer bringing ACID transactions and schema enforcement.
-* **Azure Data Lake Storage Gen2 (ADLS Gen2):** Scalable, secure data lake for storing raw and processed data.
-* **PySpark & Structured Streaming:** For incremental, fault-tolerant data ingestion.
-* **Spark SQL:** For business-layer transformations and aggregations.
-* **CoinGecko API:** External source for real-time Bitcoin data.
-* **Databricks Jobs:** For orchestrating and scheduling the end-to-end pipeline.
-* **Power BI:** For data visualization and interactive analysis.
+```
+CoinGecko API ──► Databricks (PySpark / Spark SQL / Delta Lake) ──► Azure SQL Database ──► FastAPI + Redis ──► Clients
+```
+
+| Component | Folder | What it does |
+|---|---|---|
+| **Data pipeline** | [`pipeline/`](pipeline/) | 5 Databricks notebooks: ingestion, Auto Loader, cleaning, dimensional modelling, export |
+| **REST API** | [`api/`](api/) | FastAPI service exposing the gold layer, with API keys, rate limiting and caching |
 
 ---
 
-##  Architecture & Data Flow
-The pipeline adheres strictly to the Medallion Architecture, ensuring data quality and reliability across different layers (raw -> bronze -> silver -> gold)
+## Architecture
 
+```mermaid
+flowchart LR
+    CG[CoinGecko API]
 
+    subgraph AZ[Azure]
+        KV[(Key Vault<br/>secret scope)]
+        subgraph DBX[Azure Databricks · Unity Catalog]
+            N1[sourcedata_to_raw]
+            N2[raw_to_bronze<br/>Auto Loader]
+            N3[bronze_to_silver]
+            N4[silver_to_gold<br/>star schema]
+            N5[gold_to_SQLserver<br/>JDBC]
+        end
+        subgraph ADLS[ADLS Gen2 · bitcoindatalake]
+            R[(raw<br/>JSON)]
+            B[(bronze<br/>Delta)]
+            S[(silver<br/>Delta)]
+            G[(gold<br/>Delta)]
+        end
+        SQL[(Azure SQL Database)]
+        subgraph ACA[Docker · Azure Container Apps]
+            NG[Nginx] --> API[FastAPI]
+            API <--> RD[(Redis)]
+        end
+    end
 
-### Flow of Actions:
-1. **Streaming Ingestion:** A Databricks Job triggers a PySpark notebook to stream real-time Bitcoin data from CoinGecko.
-2. **Bronze Layer Landing:** Raw JSON data is appended to the `bitcoin_raw` Delta table in ADLS Gen2, maintaining schema inference.
-3. **Silver Layer Processing:** Data is read from Bronze, cleaned, filtered, and schema-enforced, then loaded incrementally into `bitcoin_silver`.
-4. **Gold Layer Aggregation:** Business-level aggregations (e.g., hourly OHLC) are stored in the `bitcoin_gold_hourly_agg` Delta table.
-5. 
+    CG --> N1 --> R --> N2 --> B --> N3 --> S --> N4 --> G --> N5 --> SQL
+    KV -. API key, SAS token, SQL creds .-> DBX
+    SQL --> API
+    Client([API consumers]) --> NG
+```
+
+---
+
+## Tech stack
+
+| Area | Technologies |
+|---|---|
+| Cloud | Azure Databricks, ADLS Gen2, Azure Key Vault, Azure SQL Database, Azure Container Apps |
+| Processing | PySpark, Spark SQL, Delta Lake, Databricks Auto Loader (`cloudFiles`), Unity Catalog |
+| Modelling | Medallion architecture, Kimball star schema (facts + conformed dimensions) |
+| API | Python 3.13, FastAPI, SQLModel / SQLAlchemy, pyodbc (ODBC Driver 18), Pydantic |
+| Caching & limits | Redis (response cache, auth cache, per-key usage counters) |
+| Packaging | Docker, Docker Compose, Nginx reverse proxy, uv |
+
+---
+
+## 1. Data pipeline (`pipeline/`)
+
+Every notebook takes a `mode` parameter, so the same code handles both kinds of run:
+
+- **`initial_load`** loads the history once: 90 days of hourly prices, 30 days of 4-hour OHLC candles, and all dimension tables.
+- **`incremental_load`** runs daily and loads the previous day: 5-minute prices and 30-minute OHLC candles.
+
+| # | Notebook | Layer | Key techniques |
+|---|---|---|---|
+| 1 | `sourcedata_to_raw.ipynb` | API → **raw** | Calls the CoinGecko `market_chart/range`, `ohlc` and `coins` endpoints. Writes JSON to ADLS, under `history/` or a `YYYY-MM-DD/` partition. Credentials come from a Key Vault-backed secret scope |
+| 2 | `raw_to_bronze.ipynb` | raw → **bronze** | **Auto Loader** (`cloudFiles`) with explicit schemas and schema location, `trigger(availableNow=True)`. Checkpoints make the ingestion exactly-once and incremental, then it appends to Delta |
+| 3 | `bronze_to_silver.ipynb` | bronze → **silver** | Parses nested `ARRAY<ARRAY<DOUBLE>>` payloads (`from_json`, `arrays_zip`, `explode`) and converts epoch milliseconds to timestamps. **Idempotent `MERGE`** for history, `INSERT OVERWRITE` of yesterday's rows for live data |
+| 4 | `silver_to_gold.ipynb` | silver → **gold** | Builds the star schema. Aligns timestamps to a fixed interval grid, rolls each day's fine-grained data into the history fact tables, and deduplicates with `ROW_NUMBER()`. The date dimension comes from the facts, and the time dimension is generated (288 five-minute slots, with trading-session and interval flags) |
+| 5 | `gold_to_SQLserver.ipynb` | gold → **Azure SQL** | Finds every `gold_*` table in the catalog and publishes it to Azure SQL Database over JDBC |
+
+### Gold data model (star schema)
+
+```mermaid
+erDiagram
+    gold_dim_date ||--o{ FACTS : date_key
+    gold_dim_time ||--o{ FACTS : time_key
+    gold_dim_coin ||--o{ FACTS : coin_key
+    gold_dim_currency ||--o{ FACTS : currency_key
+
+    FACTS {
+        string date_key
+        string time_key
+        string coin_key
+        string currency_key
+        double measures "prices / market_caps / total_volumes OR open / high / low / close"
+    }
+```
+
+| Fact table | Grain | Window |
+|---|---|---|
+| `gold_fact_hourlyprices_last90days` | 1 hour: price, market cap, volume | rolling 90 days |
+| `gold_fact_4hourlyohlc_last30days` | 4 hours: OHLC candles | rolling 30 days |
+| `gold_fact_5minprices_lastday` | 5 minutes: price, market cap, volume | previous day |
+| `gold_fact_30minohlc_lastday` | 30 minutes: OHLC candles | previous day |
+
+The dimension tables are `gold_dim_date`, `gold_dim_time`, `gold_dim_coin` and `gold_dim_currency`. The model is built so
+more coins and currencies can be added later without changing the fact tables.
+
+---
+
+## 2. REST API (`api/`)
+
+A FastAPI service that reads the gold star schema from Azure SQL Database and returns the joined data as JSON.
+
+**Features**
+- **API key authentication.** Keys are generated with `uuid4` and stored as **salted SHA-256 hashes**, never in plain text.
+- **Rate limiting.** Each key gets 100 requests per day, counted atomically in Redis (`INCR` + TTL).
+- **Redis caching.** Query results and authenticated keys are cached for 5 minutes, so repeated requests skip the database.
+- **Write-behind sync.** A background task runs every 15 minutes and copies usage counters from Redis to SQL, so the API never writes to the database on the request path. Another task resets the counters every day.
+- **Layered design.** Routers, a `DataManager` facade, per-domain services, SQLModel models and Pydantic schemas are kept separate, with dependencies injected for the DB session and Redis.
+- **Containerised.** Docker Compose runs Nginx, the app and Redis together. The same three containers run on Azure Container Apps.
+
+### Endpoints
+
+| Method | Path | Query params | Returns |
+|---|---|---|---|
+| `PUT` | `/generareApi/` | body: `{ "key_name": str, "owner_email": str? }` | `{ key_name, api_key }` (the key is shown only once) |
+| `GET` | `/get_historyChart` | `key_name`, `api_key`, `start_date`, `end_date`, `limit` | Hourly price, market cap and volume (90 days) |
+| `GET` | `/get_liveChart` | `key_name`, `api_key`, `start_time`, `end_time`, `limit` | 5-minute price, market cap and volume (previous day) |
+| `GET` | `/get_historyOhlc` | `key_name`, `api_key`, `start_date`, `end_date`, `limit` | 4-hour OHLC candles (30 days) |
+| `GET` | `/get_liveOhlc` | `key_name`, `api_key`, `start_time`, `end_time`, `limit` | 30-minute OHLC candles (previous day) |
+
+Interactive docs are served at `/docs` (Swagger UI).
+
+```bash
+# 1. Create a key
+curl -X PUT http://localhost/generareApi/ \
+     -H "Content-Type: application/json" \
+     -d '{"key_name": "demo", "owner_email": "me@example.com"}'
+
+# 2. Query the gold layer
+curl "http://localhost/get_historyOhlc?key_name=demo&api_key=<KEY>&start_date=2026-01-01&limit=5"
+```
+
+```json
+[
+  {
+    "timestamp": "2026-01-01 00:00:00",
+    "coin_name": "bitcoin",
+    "currency_name": "USD",
+    "open": 93512.4, "high": 94100.8, "low": 93220.1, "close": 93987.6
+  }
+]
+```
+
+<sub>The values above are illustrative.</sub>
+
+Error codes: `404` means the key name or API key is invalid, `429` means the daily limit has been reached, and `401` means the key name is already taken.
+
+---
+
+## Getting started
+
+### Pipeline (Azure Databricks)
+1. Provision an **ADLS Gen2** account with `raw`, `bronze`, `silver` and `gold` containers, an **Azure SQL Database**, and a **Key Vault**.
+2. Create a Databricks secret scope called `Connectors`, backed by the Key Vault, with these keys: `api-key` (CoinGecko demo key), `SAS-token`, `username` and `sqlpassword`.
+3. Import the notebooks from `pipeline/` and create a Databricks Job that runs them in order (1 → 5) with the job parameter `mode`.
+   Run it once with `initial_load`, then schedule it daily with `incremental_load`.
+
+### API (local, Docker)
+```bash
+cd api
+cat > app/.env <<'EOF'
+DATABASE_URL=mssql+pyodbc://<user>:<password>@<server>.database.windows.net:1433/<db>?driver=ODBC+Driver+18+for+SQL+Server
+REDIS_HOST=redis
+REDIS_PORT=6379
+EOF
+docker compose up --build
+# → http://localhost/docs
+```
+
+---
+
+## Repository layout
+
+```
+.
+├── pipeline/                    # Azure Databricks notebooks (Medallion ETL)
+│   ├── sourcedata_to_raw.ipynb
+│   ├── raw_to_bronze.ipynb
+│   ├── bronze_to_silver.ipynb
+│   ├── silver_to_gold.ipynb
+│   └── gold_to_SQLserver.ipynb
+└── api/                         # FastAPI service
+    ├── app/
+    │   ├── main.py              # routes + background schedulers
+    │   ├── core/                # settings, DB engine, Redis client
+    │   ├── crud/                # services: chart, ohlc, api keys, redis, DataManager
+    │   ├── db/                  # SQLModel tables mapped to the gold star schema
+    │   └── schemas/             # Pydantic response/request models
+    ├── nginx/                   # reverse-proxy config
+    ├── Dockerfile
+    ├── docker-compose.yml
+    └── pyproject.toml / uv.lock
+```
+
+---
+
+## Design decisions
+
+- **Auto Loader with `availableNow`** gives streaming-style checkpointing (each file is processed exactly once) while running as a cheap scheduled batch job instead of an always-on cluster.
+- **Two time grains per metric.** A coarse rolling history plus a fine-grained previous day matches what CoinGecko's free tier returns, and keeps the fact tables small.
+- **Gold is published to Azure SQL** so the API can use a standard relational driver and connection pooling, without depending on a Databricks SQL warehouse being up.
+- **Redis sits in front of everything the API does on each request**: auth, rate limiting and query results. SQL only gets cache misses and the batched usage sync.
+
+## Roadmap
+
+- [ ] Move the API key from the query string to an `X-API-Key` header
+- [ ] Infrastructure as code (Bicep or Terraform) and CI/CD (GitHub Actions, Databricks Asset Bundles)
+- [ ] Data-quality checks (expectations) between layers, plus unit tests for the API
+- [ ] More coins and currencies (the dimensional model already supports them)
