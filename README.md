@@ -9,6 +9,20 @@ REST API** built with **FastAPI**.
 CoinGecko API ──► Databricks (PySpark / Spark SQL / Delta Lake) ──► Azure SQL Database ──► FastAPI + Redis ──► Clients
 ```
 
+## Why this project exists
+
+This is a **personal project**. It isn't school coursework, a tutorial follow-along, or work done for an employer.
+I designed and built it on my own, with my own Azure subscription, to get hands-on with the full lifecycle
+of a modern data platform rather than just one piece of it:
+
+- **Provisioning cloud infrastructure:** Databricks, ADLS Gen2, Key Vault, Azure SQL and Container Apps
+- **Building incremental, idempotent pipelines:** Medallion architecture with Auto Loader and Delta `MERGE`
+- **Modelling data for consumers:** a Kimball star schema
+- **Serving data as a product:** a secured, rate-limited, cached REST API that other applications can use
+
+Bitcoin market data was a good fit because it's free to access, updates continuously, and has a natural time-series
+structure. That makes problems like incremental loads, time-grain alignment and deduplication real ones I had to solve.
+
 | Component | Folder | What it does |
 |---|---|---|
 | **Data pipeline** | [`pipeline/`](pipeline/) | 5 Databricks notebooks: ingestion, Auto Loader, cleaning, dimensional modelling, export |
