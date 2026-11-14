@@ -1,0 +1,18 @@
+.venv
+.env
+__pycache__/
+*.pyc
+Redisplan.txt
+# Python
+__pycache__/
+.venv/
+
+# Secrets
+.env
+*.pem
+*.key
+certs/
+*.yaml
+
+# Databases
+data/
