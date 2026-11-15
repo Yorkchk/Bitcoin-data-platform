@@ -1,7 +1,6 @@
 import { useCallback, useMemo, useState } from 'react'
 import { useHistoryChart } from '../api/queries'
 import type { PricePoint } from '../api/types'
-import { RequireKey } from '../components/DataGate'
 import { PageHeader } from '../components/ui'
 import { toIsoDate } from '../lib/format'
 import { DAY, filterByTime } from '../lib/stats'
@@ -19,11 +18,8 @@ export function PriceHistory() {
       <PageHeader
         title="Price history"
         description="Hourly price, market cap and 24-hour volume for the last 90 days."
-        endpoint="GET /get_historyChart"
       />
-      <RequireKey>
-        <Body />
-      </RequireKey>
+      <Body />
     </>
   )
 }

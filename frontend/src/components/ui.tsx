@@ -150,12 +150,12 @@ export function ErrorState({ error, onRetry }: { error: unknown; onRetry?: () =>
     api?.kind === 'invalid-key'
       ? 'Your saved key was not accepted'
       : api?.kind === 'rate-limited'
-        ? 'Daily request limit reached'
+        ? 'Too many requests'
         : api?.kind === 'network'
           ? 'The API is not reachable'
           : 'The data could not be loaded'
   const message = api?.message ?? 'Something unexpected went wrong while loading this data.'
-  const canRetry = onRetry && api?.kind !== 'invalid-key' && api?.kind !== 'rate-limited'
+  const canRetry = onRetry && api?.kind !== 'invalid-key'
   return (
     <div className="card px-6 py-10 text-center" role="alert">
       <h2 className="text-lg font-semibold text-ink">{title}</h2>
@@ -169,8 +169,8 @@ export function ErrorState({ error, onRetry }: { error: unknown; onRetry?: () =>
             Try again
           </button>
         )}
-        {(api?.kind === 'invalid-key' || api?.kind === 'rate-limited') && (
-          <Link to="/keys" className="btn btn-primary">
+        {api?.kind === 'invalid-key' && (
+          <Link to="/developers/keys" className="btn btn-primary">
             Manage API key
           </Link>
         )}

@@ -23,7 +23,7 @@ export function Keys() {
     <>
       <PageHeader
         title="API keys"
-        description="Every data endpoint needs a key name and an API key. Each key allows 100 requests a day. The key is stored only in this browser."
+        description="A key lets you call the Bitcoin data API from your own code. Browsing this site does not need one. Each key allows 100 requests a day."
         endpoint="PUT /generareApi/"
       />
       <div className="grid gap-6 lg:grid-cols-2">
@@ -49,8 +49,8 @@ export function Keys() {
                 own tally. Calls made elsewhere with the same key are not included.
               </li>
               <li>
-                The dashboards load each dataset once and reuse it for 30 minutes, so normal browsing
-                uses about four requests.
+                Browsing the charts on this site does not use your key. Only your own API calls and the
+                API explorer count against it.
               </li>
             </ul>
           </Card>
@@ -78,8 +78,8 @@ function CreatedPanel({ created, onDismiss }: { created: CreatedKey; onDismiss: 
       </dl>
       <div className="mt-4 flex flex-wrap gap-2">
         <CopyButton text={created.api_key} label="Copy key" />
-        <Link to="/" className="btn btn-primary">
-          Go to the overview
+        <Link to="/developers" className="btn btn-primary">
+          Read the docs
         </Link>
         <button type="button" className="btn" onClick={onDismiss}>
           I have saved it
@@ -99,7 +99,7 @@ function CurrentKey() {
   const masked = `${credentials.apiKey.slice(0, 4)}${'•'.repeat(12)}${credentials.apiKey.slice(-4)}`
 
   return (
-    <Card title="Key in use" subtitle="Saved in this browser and sent with every data request">
+    <Card title="Key in use" subtitle="Saved in this browser for the docs examples and the API explorer">
       <dl className="space-y-3 text-sm">
         <div>
           <dt className="text-xs text-ink-3">Key name</dt>

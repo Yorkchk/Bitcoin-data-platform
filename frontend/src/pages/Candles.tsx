@@ -4,7 +4,7 @@ import { useHistoryOhlc, useLiveOhlc } from '../api/queries'
 import type { Candle } from '../api/types'
 import { CandleChart } from '../charts/CandleChart'
 import { DataTable, type Column } from '../components/DataTable'
-import { QueryView, RequireKey } from '../components/DataGate'
+import { QueryView } from '../components/DataGate'
 import { Card, PageHeader, Segmented, StatTile } from '../components/ui'
 import { downloadCsv, toCsv } from '../lib/csv'
 import { fmtDate, fmtPct, fmtUsd, fmtUsdWhole, toIsoMinute } from '../lib/format'
@@ -52,14 +52,11 @@ export function Candles() {
       <PageHeader
         title="Candles"
         description="Open, high, low and close prices: 4-hour candles for the last 30 days, and 30-minute candles for the previous day."
-        endpoint={tab === 'history' ? 'GET /get_historyOhlc' : 'GET /get_liveOhlc'}
       />
-      <RequireKey>
-        <div className="mb-6">
+      <div className="mb-6">
           <Segmented label="Candle set" options={TABS} value={tab} onChange={setTab} />
         </div>
-        {tab === 'history' ? <HistoryCandles /> : <LiveCandles />}
-      </RequireKey>
+      {tab === 'history' ? <HistoryCandles /> : <LiveCandles />}
     </>
   )
 }

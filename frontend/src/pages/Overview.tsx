@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { useHistoryChart, useHistoryOhlc, useLiveChart, useLiveOhlc } from '../api/queries'
 import { CandleChart } from '../charts/CandleChart'
 import { SeriesChart } from '../charts/SeriesChart'
-import { QueryView, RequireKey } from '../components/DataGate'
+import { QueryView } from '../components/DataGate'
 import { Card, PageHeader, Segmented, Skeleton, StatTile } from '../components/ui'
 import { fmtDate, fmtPct, fmtUsd, fmtUsdCompact, fmtUsdWhole } from '../lib/format'
 import { lastDays, summarizeCandles, summarizePrices } from '../lib/stats'
@@ -22,9 +22,7 @@ export function Overview() {
         title="Bitcoin overview"
         description="BTC / USD from the gold layer: hourly history, 4-hour candles and the previous day's intraday data."
       />
-      <RequireKey>
-        <OverviewBody />
-      </RequireKey>
+      <OverviewBody />
     </>
   )
 }
@@ -87,7 +85,7 @@ function OverviewBody() {
 
       <Card
         title="Price"
-        subtitle="Hourly, from /get_historyChart"
+        subtitle="Hourly, last 90 days"
         actions={<Segmented label="Time range" options={RANGES} value={range} onChange={setRange} />}
       >
         <QueryView
@@ -105,7 +103,7 @@ function OverviewBody() {
       </Card>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <Card title="4-hour candles" subtitle="Last 7 days, from /get_historyOhlc">
+        <Card title="4-hour candles" subtitle="Last 7 days">
           <QueryView
             query={candles}
             height={280}
@@ -124,8 +122,8 @@ function OverviewBody() {
           title="Previous day"
           subtitle={
             live.data && live.data.length > 0
-              ? `${fmtDate(live.data[0].time)}, from /get_liveChart and /get_liveOhlc`
-              : 'From /get_liveChart and /get_liveOhlc'
+              ? `${fmtDate(live.data[0].time)}, intraday`
+              : 'Intraday'
           }
         >
           <QueryView
@@ -158,7 +156,31 @@ function OverviewBody() {
           </p>
         </Card>
       </div>
+
+      <DeveloperBand />
     </div>
+  )
+}
+
+function DeveloperBand() {
+  return (
+    <section className="card flex flex-wrap items-center justify-between gap-4 p-4 sm:p-5">
+      <div className="min-w-0">
+        <h2 className="text-base font-semibold text-ink">Use this data in your own code</h2>
+        <p className="mt-1 max-w-xl text-sm text-ink-2">
+          Every chart on this site is also available as a JSON API. Get a free key (100 requests a
+          day) and start with copy-ready examples in curl, Python and JavaScript.
+        </p>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <Link to="/developers" className="btn">
+          Read the docs
+        </Link>
+        <Link to="/developers/keys" className="btn btn-primary">
+          Get a free API key
+        </Link>
+      </div>
+    </section>
   )
 }
 

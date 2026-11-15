@@ -1,92 +1,11 @@
 import { useMemo, useState, type FormEvent } from 'react'
+import { Link } from 'react-router-dom'
 import { API_BASE, friendlyMessage, kindForStatus } from '../api/client'
+import { ENDPOINTS, endpointById, type Endpoint, type Field } from '../api/endpoints'
+import { CodeTabs } from '../components/CodeTabs'
 import { Card, CopyButton, Notice, PageHeader } from '../components/ui'
+import { API_KEY_PLACEHOLDER, buildSnippet } from '../lib/snippets'
 import { markExhausted, recordRequest, saveCredentials, useKeyStore } from '../state/keyStore'
-
-type FieldType = 'text' | 'email' | 'date' | 'time' | 'number' | 'secret'
-
-interface Field {
-  name: string
-  label: string
-  type: FieldType
-  required?: boolean
-  hint?: string
-}
-
-interface Endpoint {
-  id: string
-  method: 'GET' | 'PUT'
-  path: string
-  title: string
-  summary: string
-  /** GET: query parameters. PUT: JSON body fields. */
-  fields: Field[]
-}
-
-const AUTH_FIELDS: Field[] = [
-  { name: 'key_name', label: 'key_name', type: 'text', required: true },
-  { name: 'api_key', label: 'api_key', type: 'secret', required: true },
-]
-const DATE_FIELDS: Field[] = [
-  { name: 'start_date', label: 'start_date', type: 'date', hint: 'Optional' },
-  { name: 'end_date', label: 'end_date', type: 'date', hint: 'Optional' },
-]
-const TIME_FIELDS: Field[] = [
-  { name: 'start_time', label: 'start_time', type: 'time', hint: 'Optional, UTC' },
-  { name: 'end_time', label: 'end_time', type: 'time', hint: 'Optional, UTC' },
-]
-const LIMIT_FIELD: Field = {
-  name: 'limit',
-  label: 'limit',
-  type: 'number',
-  hint: 'Optional. Returns the earliest rows first.',
-}
-
-const ENDPOINTS: Endpoint[] = [
-  {
-    id: 'generate',
-    method: 'PUT',
-    path: '/generareApi/',
-    title: 'Create an API key',
-    summary: 'Returns a new key. The key value is only ever returned by this call.',
-    fields: [
-      { name: 'key_name', label: 'key_name', type: 'text', required: true, hint: 'Must be unique' },
-      { name: 'owner_email', label: 'owner_email', type: 'email', hint: 'Optional' },
-    ],
-  },
-  {
-    id: 'historyChart',
-    method: 'GET',
-    path: '/get_historyChart',
-    title: 'Hourly price history',
-    summary: 'Hourly price, market cap and volume for the last 90 days.',
-    fields: [...AUTH_FIELDS, ...DATE_FIELDS, LIMIT_FIELD],
-  },
-  {
-    id: 'liveChart',
-    method: 'GET',
-    path: '/get_liveChart',
-    title: 'Previous-day prices',
-    summary: 'Intraday price, market cap and volume for the previous day.',
-    fields: [...AUTH_FIELDS, ...TIME_FIELDS, LIMIT_FIELD],
-  },
-  {
-    id: 'historyOhlc',
-    method: 'GET',
-    path: '/get_historyOhlc',
-    title: '4-hour candles',
-    summary: 'Open, high, low and close every 4 hours for the last 30 days.',
-    fields: [...AUTH_FIELDS, ...DATE_FIELDS, LIMIT_FIELD],
-  },
-  {
-    id: 'liveOhlc',
-    method: 'GET',
-    path: '/get_liveOhlc',
-    title: 'Previous-day candles',
-    summary: 'Open, high, low and close every 30 minutes for the previous day.',
-    fields: [...AUTH_FIELDS, ...TIME_FIELDS, LIMIT_FIELD],
-  },
-]
 
 interface Result {
   status: number
@@ -103,44 +22,36 @@ function wireValue(field: Field, value: string): string {
   return field.type === 'time' && /^\d\d:\d\d$/.test(value) ? `${value}:00` : value
 }
 
-function buildRequest(endpoint: Endpoint, values: Record<string, string>) {
-  if (endpoint.method === 'PUT') {
-    const body: Record<string, string | null> = {}
-    for (const f of endpoint.fields) {
-      const v = (values[f.name] ?? '').trim()
-      body[f.name] = v === '' ? (f.required ? '' : null) : v
-    }
-    return { query: '', body: JSON.stringify(body) }
-  }
-  const q = new URLSearchParams()
+/** Trimmed values in wire format, empty ones dropped. */
+function wireValues(endpoint: Endpoint, values: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {}
   for (const f of endpoint.fields) {
     const v = (values[f.name] ?? '').trim()
-    if (v !== '') q.set(f.name, wireValue(f, v))
+    if (v !== '') out[f.name] = wireValue(f, v)
   }
-  return { query: q.toString(), body: null }
+  return out
 }
 
-function curlFor(endpoint: Endpoint, values: Record<string, string>, maskKey: boolean): string {
-  const shown = maskKey && values.api_key ? { ...values, api_key: '<YOUR_API_KEY>' } : values
-  const { query, body } = buildRequest(endpoint, shown)
-  // The API also answers on the root paths, which is how it is documented.
-  const url = `${window.location.origin}${endpoint.path}${query ? `?${query}` : ''}`
+function buildRequest(endpoint: Endpoint, values: Record<string, string>) {
+  const wire = wireValues(endpoint, values)
   if (endpoint.method === 'PUT') {
-    return `curl -X PUT "${url}" \\\n  -H "Content-Type: application/json" \\\n  -d '${body}'`
+    const body: Record<string, string | null> = {}
+    for (const f of endpoint.fields) body[f.name] = wire[f.name] ?? (f.required ? '' : null)
+    return { query: '', body: JSON.stringify(body) }
   }
-  return `curl "${url.replace('%3CYOUR_API_KEY%3E', '<YOUR_API_KEY>')}"`
+  return { query: new URLSearchParams(wire).toString(), body: null }
 }
 
 export function Explorer() {
   const { credentials } = useKeyStore()
-  const [selectedId, setSelectedId] = useState(ENDPOINTS[1].id)
+  const [selectedId, setSelectedId] = useState('historyChart')
   const [valuesById, setValuesById] = useState<Record<string, Record<string, string>>>({})
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<Result | null>(null)
   const [networkError, setNetworkError] = useState(false)
   const [savedCreated, setSavedCreated] = useState(false)
 
-  const endpoint = ENDPOINTS.find((e) => e.id === selectedId) ?? ENDPOINTS[0]
+  const endpoint = endpointById(selectedId)
 
   // Saved credentials and a small limit are the defaults; anything typed overrides them.
   const values = useMemo(() => {
@@ -215,12 +126,28 @@ export function Explorer() {
       ? (result.body as { key_name: string; api_key: string })
       : null
 
+  const snippetValues = (withSecret: boolean) => {
+    const wire = wireValues(endpoint, values)
+    return !withSecret && wire.api_key ? { ...wire, api_key: API_KEY_PLACEHOLDER } : wire
+  }
+
   return (
     <>
       <PageHeader
         title="API explorer"
-        description="Call any of the five endpoints with your own parameters and see the raw response."
+        description="Send real requests to the five developer endpoints and see the raw response."
       />
+      {!credentials && (
+        <div className="mb-6">
+          <Notice tone="info">
+            The data endpoints need a key.{' '}
+            <Link to="/developers/keys" className="font-medium text-ink underline">
+              Create one
+            </Link>{' '}
+            and it is filled in here automatically, or use <strong>Create an API key</strong> below.
+          </Notice>
+        </div>
+      )}
       <div className="grid gap-6 lg:grid-cols-[17rem_1fr]">
         <nav aria-label="Endpoints" className="min-w-0">
           <ul className="flex gap-2 overflow-x-auto pb-1 lg:flex-col lg:overflow-visible lg:pb-0">
@@ -233,9 +160,7 @@ export function Explorer() {
                     aria-current={active ? 'true' : undefined}
                     onClick={() => select(e.id)}
                     className={`w-full cursor-pointer rounded-lg border px-3 py-2 text-left ${
-                      active
-                        ? 'border-ink bg-surface'
-                        : 'border-hairline bg-surface hover:bg-surface-2'
+                      active ? 'border-ink bg-surface' : 'border-hairline bg-surface hover:bg-surface-2'
                     }`}
                   >
                     <span className="flex items-center gap-2">
@@ -263,30 +188,29 @@ export function Explorer() {
                   return (
                     <div key={f.name}>
                       <label htmlFor={id} className="label font-mono">
-                        {f.label}
+                        {f.name}
                         {f.required && <span className="font-sans text-ink-3"> (required)</span>}
                       </label>
                       <input
                         id={id}
                         className={`field ${f.type === 'secret' ? 'font-mono' : ''}`}
-                        type={
-                          f.type === 'secret' ? 'password' : f.type === 'number' ? 'number' : f.type
-                        }
+                        type={f.type === 'secret' ? 'password' : f.type === 'number' ? 'number' : f.type}
                         min={f.type === 'number' ? 1 : undefined}
-                        step={f.type === 'time' ? 60 : undefined}
+                        step={f.type === 'time' ? 1 : undefined}
                         autoComplete="off"
                         value={values[f.name] ?? ''}
                         onChange={(e) => setValue(f.name, e.target.value)}
                       />
-                      {f.hint && <p className="mt-1 text-xs text-ink-3">{f.hint}</p>}
+                      <p className="mt-1 text-xs text-ink-3">
+                        {f.required ? '' : 'Optional. '}
+                        {f.description}
+                      </p>
                     </div>
                   )
                 })}
               </div>
               {endpoint.method === 'GET' && (
-                <p className="text-xs text-ink-3">
-                  Each successful call uses one of the key's 100 daily requests.
-                </p>
+                <p className="text-xs text-ink-3">Each successful call uses one of the key's 100 daily requests.</p>
               )}
               <button type="submit" className="btn btn-primary" disabled={busy}>
                 {busy ? 'Sending…' : 'Send request'}
@@ -294,34 +218,26 @@ export function Explorer() {
             </form>
           </Card>
 
-          <Card
-            title="curl"
-            subtitle="The same request from a terminal"
-            actions={<CopyButton text={curlFor(endpoint, values, false)} label="Copy with key" />}
-          >
-            <pre className="overflow-x-auto rounded-lg bg-surface-2 p-3 font-mono text-xs text-ink">
-              {curlFor(endpoint, values, true)}
-            </pre>
+          <Card title="Code" subtitle="The same request from your own code">
+            <CodeTabs
+              build={(lang, secret) =>
+                buildSnippet(lang, endpoint, snippetValues(secret), window.location.origin)
+              }
+              copyIncludesKey={endpoint.method === 'GET' && Boolean(values.api_key)}
+            />
           </Card>
 
           {networkError && <Notice tone="error">{friendlyMessage('network')}</Notice>}
 
           {result && (
-            <Card
-              title="Response"
-              actions={<CopyButton text={result.raw} label="Copy JSON" />}
-            >
+            <Card title="Response" actions={<CopyButton text={result.raw} label="Copy JSON" />}>
               <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-                <span
-                  className={`tnum font-semibold ${result.ok ? 'text-up-text' : 'text-down-text'}`}
-                >
+                <span className={`tnum font-semibold ${result.ok ? 'text-up-text' : 'text-down-text'}`}>
                   {result.ok ? '✓' : '✕'} HTTP {result.status}
                 </span>
                 <span className="tnum text-ink-3">{result.ms} ms</span>
                 {Array.isArray(result.body) && (
-                  <span className="tnum text-ink-3">
-                    {result.body.length.toLocaleString('en-US')} rows
-                  </span>
+                  <span className="tnum text-ink-3">{result.body.length.toLocaleString('en-US')} rows</span>
                 )}
               </div>
               {!result.ok && (
@@ -331,11 +247,9 @@ export function Explorer() {
               )}
               {createdKey && (
                 <div className="mb-3 space-y-2">
-                  <Notice tone="warning">
-                    This is the only time the key is shown. Copy it now.
-                  </Notice>
+                  <Notice tone="warning">This is the only time the key is shown. Copy it now.</Notice>
                   {savedCreated ? (
-                    <Notice tone="success">Saved. The dashboards now use this key.</Notice>
+                    <Notice tone="success">Saved in this browser. The explorer and docs now use this key.</Notice>
                   ) : (
                     <button
                       type="button"
@@ -345,7 +259,7 @@ export function Explorer() {
                         setSavedCreated(true)
                       }}
                     >
-                      Use this key in the dashboards
+                      Save this key in the browser
                     </button>
                   )}
                 </div>
@@ -378,8 +292,8 @@ function JsonView({ body }: { body: unknown }) {
       </pre>
       {truncated && (
         <p className="mt-2 text-xs text-ink-3">
-          Showing the first {MAX_ROWS_SHOWN} of {(body as unknown[]).length.toLocaleString('en-US')}{' '}
-          rows. Copy JSON gives the full response.
+          Showing the first {MAX_ROWS_SHOWN} of {(body as unknown[]).length.toLocaleString('en-US')} rows. Copy
+          JSON gives the full response.
         </p>
       )}
     </>

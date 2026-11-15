@@ -1,7 +1,6 @@
 import { useCallback, useState } from 'react'
 import { useLiveChart } from '../api/queries'
 import type { PricePoint } from '../api/types'
-import { RequireKey } from '../components/DataGate'
 import { PageHeader } from '../components/ui'
 import { fmtDate } from '../lib/format'
 import { PriceView } from './PricePage'
@@ -25,11 +24,8 @@ export function Live() {
       <PageHeader
         title="Previous day"
         description="Intraday price, market cap and volume for the most recent full day the pipeline has loaded. It refreshes once a day, after the nightly run."
-        endpoint="GET /get_liveChart"
       />
-      <RequireKey>
-        <Body />
-      </RequireKey>
+      <Body />
     </>
   )
 }

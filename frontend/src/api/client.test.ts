@@ -5,6 +5,7 @@ import {
   createKey,
   extractDetail,
   getHistoryChart,
+  getPublicHistoryChart,
   kindForStatus,
   parseUtc,
   toCandles,
@@ -76,6 +77,22 @@ describe('requests', () => {
   it('throws a rate-limit error on 429', async () => {
     mockFetch(429, { detail: 'Too many requests' })
     await expect(getHistoryChart(creds)).rejects.toMatchObject({ kind: 'rate-limited' })
+  })
+
+  it('calls the public endpoints without credentials', async () => {
+    const fetchMock = mockFetch(200, [])
+    await getPublicHistoryChart()
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/public/history-chart')
+  })
+
+  it('explains a public 429 as a per-visitor limit, not a key quota', async () => {
+    mockFetch(429, { detail: 'Too many requests from this address, try again later' })
+    const error = (await getPublicHistoryChart().catch((e: unknown) => e)) as ApiError
+    expect(error.kind).toBe('rate-limited')
+    expect(error.message).toContain('your network')
+    mockFetch(429, { detail: 'Too many requests' })
+    const keyed = (await getHistoryChart(creds).catch((e: unknown) => e)) as ApiError
+    expect(keyed.message).toContain('100 requests')
   })
 
   it('reports a network error when fetch itself fails', async () => {

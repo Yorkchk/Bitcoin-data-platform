@@ -1,5 +1,5 @@
 from contextlib import contextmanager
-from fastapi import FastAPI, Depends, HTTPException, Query
+from fastapi import FastAPI, Depends, HTTPException, Query, Request
 from fastapi_utilities import repeat_every 
 from sqlmodel import SQLModel, Session
 from core.session import engine
@@ -143,3 +143,43 @@ async def get_liveOhlcData(key_name:str,
         return ohlc_data
     
 
+
+
+# ---------------------------------------------------------------------------
+# Public endpoints for the website: no API key, limited per visitor IP.
+# They always return the full dataset, so every visitor shares one Redis cache
+# entry. Hidden from Swagger, which documents the keyed developer API.
+# ---------------------------------------------------------------------------
+
+def client_ip(request: Request) -> str:
+    # nginx sets X-Real-IP; the app container is only reachable through nginx.
+    return request.headers.get("x-real-ip") or (request.client.host if request.client else "unknown")
+
+
+def enforce_ip_limit(request: Request, data_manager: DataManager):
+    if not data_manager.check_ip_limit(client_ip(request)):
+        raise HTTPException(status_code=429, detail="Too many requests from this address, try again later")
+
+
+@app.get("/public/history-chart", include_in_schema=False)
+async def public_history_chart(request: Request, data_manager: DataManager = Depends(get_dm)):
+    enforce_ip_limit(request, data_manager)
+    return data_manager.get_chart(type="history", limit=None, start=None, end=None)
+
+
+@app.get("/public/live-chart", include_in_schema=False)
+async def public_live_chart(request: Request, data_manager: DataManager = Depends(get_dm)):
+    enforce_ip_limit(request, data_manager)
+    return data_manager.get_chart(type="lastday", limit=None, start=None, end=None)
+
+
+@app.get("/public/history-ohlc", include_in_schema=False)
+async def public_history_ohlc(request: Request, data_manager: DataManager = Depends(get_dm)):
+    enforce_ip_limit(request, data_manager)
+    return data_manager.get_ohlc(type="history", limit=None, start=None, end=None)
+
+
+@app.get("/public/live-ohlc", include_in_schema=False)
+async def public_live_ohlc(request: Request, data_manager: DataManager = Depends(get_dm)):
+    enforce_ip_limit(request, data_manager)
+    return data_manager.get_ohlc(type="lastday", limit=None, start=None, end=None)

@@ -2,13 +2,31 @@ import { NavLink, Link, Outlet } from 'react-router-dom'
 import { DAILY_LIMIT, useKeyStore } from '../state/keyStore'
 import { toggleTheme, useTheme } from '../state/theme'
 
-const NAV = [
-  { to: '/', label: 'Overview', end: true },
-  { to: '/history', label: 'Price history' },
-  { to: '/live', label: 'Previous day' },
-  { to: '/candles', label: 'Candles' },
-  { to: '/explorer', label: 'API explorer' },
-  { to: '/keys', label: 'API keys' },
+interface NavItem {
+  to: string
+  label: string
+  end?: boolean
+}
+
+/** Two halves of the app: market data for everyone, and the API for developers. */
+const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
+  {
+    label: 'Market',
+    items: [
+      { to: '/', label: 'Overview', end: true },
+      { to: '/history', label: 'Price history' },
+      { to: '/live', label: 'Previous day' },
+      { to: '/candles', label: 'Candles' },
+    ],
+  },
+  {
+    label: 'Developers',
+    items: [
+      { to: '/developers', label: 'API docs', end: true },
+      { to: '/developers/keys', label: 'API keys' },
+      { to: '/developers/explorer', label: 'API explorer' },
+    ],
+  },
 ]
 
 export function Layout() {
@@ -32,25 +50,32 @@ export function Layout() {
           </div>
         </div>
         <nav aria-label="Main" className="mx-auto max-w-6xl overflow-x-auto px-4">
-          <ul className="flex gap-1">
-            {NAV.map((item) => (
-              <li key={item.to} className="shrink-0">
-                <NavLink
-                  to={item.to}
-                  end={item.end}
-                  className={({ isActive }) =>
-                    `block border-b-2 px-3 py-2.5 text-sm font-medium whitespace-nowrap ${
-                      isActive
-                        ? 'border-ink text-ink'
-                        : 'border-transparent text-ink-2 hover:text-ink'
-                    }`
-                  }
-                >
-                  {item.label}
-                </NavLink>
-              </li>
+          <div className="flex items-stretch">
+            {NAV_GROUPS.map((group, i) => (
+              <div key={group.label} className="flex shrink-0 items-stretch">
+                {i > 0 && <span aria-hidden="true" className="mx-2 my-2.5 w-px bg-line" />}
+                <ul className="flex gap-1" aria-label={group.label}>
+                  {group.items.map((item) => (
+                    <li key={item.to} className="shrink-0">
+                      <NavLink
+                        to={item.to}
+                        end={item.end}
+                        className={({ isActive }) =>
+                          `block border-b-2 px-3 py-2.5 text-sm font-medium whitespace-nowrap ${
+                            isActive
+                              ? 'border-ink text-ink'
+                              : 'border-transparent text-ink-2 hover:text-ink'
+                          }`
+                        }
+                      >
+                        {item.label}
+                      </NavLink>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             ))}
-          </ul>
+          </div>
         </nav>
       </header>
 
@@ -63,30 +88,35 @@ export function Layout() {
           <span>
             Market data from CoinGecko, loaded daily by the Databricks pipeline. All times are UTC.
           </span>
-          <a href="/docs" className="underline hover:text-ink">
-            Swagger docs
-          </a>
+          <span className="flex gap-4">
+            <Link to="/developers" className="underline hover:text-ink">
+              API docs
+            </Link>
+            <a href="/docs" className="underline hover:text-ink">
+              Swagger
+            </a>
+          </span>
         </div>
       </footer>
     </div>
   )
 }
 
-/** Compact "requests used today" readout in the header. */
+/** "Get API key" for visitors; the key's usage for developers who saved one. */
 function UsageBadge() {
   const { credentials, used } = useKeyStore()
   if (!credentials) {
     return (
-      <Link to="/keys" className="btn h-8 px-3 text-xs">
-        Add API key
+      <Link to="/developers/keys" className="btn h-8 px-3 text-xs">
+        Get API key
       </Link>
     )
   }
   const exhausted = used >= DAILY_LIMIT
   return (
     <Link
-      to="/keys"
-      title={`Key "${credentials.keyName}": about ${used} of ${DAILY_LIMIT} requests used today from this browser`}
+      to="/developers/keys"
+      title={`API key "${credentials.keyName}": about ${used} of ${DAILY_LIMIT} requests used today from this browser`}
       className="tnum flex h-8 items-center gap-2 rounded-lg border border-hairline px-2.5 text-xs text-ink-2 hover:bg-surface-2"
     >
       <span className="hidden max-w-28 truncate sm:inline">{credentials.keyName}</span>

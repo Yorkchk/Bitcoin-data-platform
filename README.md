@@ -27,7 +27,7 @@ structure. That makes problems like incremental loads, time-grain alignment and 
 |---|---|---|
 | **Data pipeline** | [`pipeline/`](pipeline/) | 5 Databricks notebooks: ingestion, Auto Loader, cleaning, dimensional modelling, export |
 | **REST API** | [`api/`](api/) | FastAPI service exposing the gold layer, with API keys, rate limiting and caching |
-| **Frontend** | [`frontend/`](frontend/) | React dashboard: price and candlestick charts, API key management and an API explorer |
+| **Frontend** | [`frontend/`](frontend/) | Public Bitcoin dashboard (no sign-up) plus a developer portal: API docs, key management and an API explorer |
 
 ---
 
@@ -131,8 +131,8 @@ more coins and currencies can be added later without changing the fact tables.
 A FastAPI service that reads the gold star schema from Azure SQL Database and returns the joined data as JSON.
 
 **Features**
-- **API key authentication.** Keys are generated with `uuid4` and stored as **salted SHA-256 hashes**, never in plain text.
-- **Rate limiting.** Each key gets 100 requests per day, counted atomically in Redis (`INCR` + TTL).
+- **API key authentication.** Keys are generated with `uuid4` and stored as **salted SHA-256 hashes**, never in plain text. Every request is checked against the hash, including when the key is served from the Redis cache.
+- **Rate limiting.** Each key gets 100 requests per day, counted atomically in Redis (`INCR` + TTL). The website's public endpoints are limited to 300 requests per hour per visitor IP instead.
 - **Redis caching.** Query results and authenticated keys are cached for 5 minutes, so repeated requests skip the database.
 - **Write-behind sync.** A background task runs every 15 minutes and copies usage counters from Redis to SQL, so the API never writes to the database on the request path. Another task resets the counters every day.
 - **Layered design.** Routers, a `DataManager` facade, per-domain services, SQLModel models and Pydantic schemas are kept separate, with dependencies injected for the DB session and Redis.
@@ -175,30 +175,52 @@ curl "http://localhost/get_historyOhlc?key_name=demo&api_key=<KEY>&start_date=20
 
 Error codes: `404` means the key name or API key is invalid, `429` means the daily limit has been reached, and `401` means the key name is already taken.
 
+### Public endpoints (used by the website)
+
+The website shows the data to anyone, without an API key, through four read-only endpoints. They take no
+parameters, always return the full dataset (so every visitor shares one Redis cache entry), are limited to
+**300 requests per hour per IP**, and are not listed in Swagger, which documents the keyed developer API.
+
+| Method | Path | Returns |
+|---|---|---|
+| `GET` | `/public/history-chart` | Same rows as `/get_historyChart` |
+| `GET` | `/public/live-chart` | Same rows as `/get_liveChart` |
+| `GET` | `/public/history-ohlc` | Same rows as `/get_historyOhlc` |
+| `GET` | `/public/live-ohlc` | Same rows as `/get_liveOhlc` |
+
 ---
 
 ## 3. Frontend (`frontend/`)
 
-A React single-page app that uses all five API endpoints. Nginx serves it at `/` and forwards its calls to
-FastAPI under `/api/`, so the browser talks to one origin and the API needs no CORS setup. The API's original
-paths (`/get_historyChart`, `/docs`, ...) still work.
+A React single-page app with two halves. Nginx serves it at `/` and forwards its calls to FastAPI under `/api/`,
+so the browser talks to one origin and the API needs no CORS setup. The API's original paths
+(`/get_historyChart`, `/docs`, ...) still work.
 
-| Page | Endpoint(s) | What it shows |
+**Market: for everyone, no API key needed** (reads the public endpoints)
+
+| Page | Route | What it shows |
 |---|---|---|
-| **Overview** | all four `GET` endpoints | Latest price, 24h change and range, market cap, volume, price chart, recent candles, previous-day summary |
-| **Price history** | `GET /get_historyChart` | Hourly price, market cap or volume with a date filter, sortable table and CSV export |
-| **Previous day** | `GET /get_liveChart` | Intraday chart for the last loaded day, with a time filter |
-| **Candles** | `GET /get_historyOhlc`, `GET /get_liveOhlc` | Candlestick charts: 4-hour for 30 days, 30-minute for the previous day |
-| **API keys** | `PUT /generareApi/` | Create a key (shown once), or use an existing one. The key is saved in the browser |
-| **API explorer** | all five | Send any request with your own parameters; see status, timing, JSON and the matching `curl` |
+| **Overview** | `/` | Latest price, 24h change and range, market cap, volume, price chart, recent candles, previous-day summary |
+| **Price history** | `/history` | Hourly price, market cap or volume with a date filter, sortable table and CSV export |
+| **Previous day** | `/live` | Intraday chart for the last loaded day, with a time filter |
+| **Candles** | `/candles` | Candlestick charts: 4-hour for 30 days, 30-minute for the previous day |
+
+**Developers: for using the data from code** (the keyed API)
+
+| Page | Route | What it does |
+|---|---|---|
+| **API docs** | `/developers` | Quick start, authentication, rate limit, error codes, and a reference for all five endpoints with curl, Python and JavaScript examples |
+| **API keys** | `/developers/keys` | Create a key (shown once) or use an existing one; it is saved in the browser for the docs and explorer |
+| **API explorer** | `/developers/explorer` | Send any request with your own parameters; see status, timing, JSON and the matching code |
 
 **Design notes**
-- **Built around the rate limit.** Every data call counts against 100 requests a day, so the dashboards fetch each
-  dataset once, keep it for 30 minutes and filter ranges in the browser. Normal browsing uses about four requests.
-- **Honest usage counter.** The API has no usage endpoint, so the header shows the browser's own tally of requests
-  made with the saved key.
-- **Clear failure states** for an invalid key (`404`), the daily limit (`429`), a taken key name (`401`) and the
-  database waking up from auto-pause.
+- **No sign-up to look at data.** Visitors never need a key; only developers calling the API do.
+- **Light on the API.** The dashboards fetch each dataset once, keep it for 30 minutes and filter ranges in the
+  browser, since the pipeline only loads new data once a day.
+- **Usage counter for developers.** The API has no usage endpoint, so once a key is saved the header shows the
+  browser's own tally of requests made with it (explorer calls only; browsing does not count).
+- **Clear failure states** for an invalid key (`404`), rate limits (`429`, worded differently for visitors and
+  key holders), a taken key name (`401`) and the database waking up from auto-pause.
 - **Light and dark themes**, following the system setting with a manual switch. Works at phone width.
 
 ---
@@ -220,8 +242,9 @@ REDIS_HOST=redis
 REDIS_PORT=6379
 EOF
 docker compose up --build
-# → http://localhost/       dashboard
-# → http://localhost/docs   Swagger UI
+# → http://localhost/             dashboard (no key needed)
+# → http://localhost/developers   API docs and keys
+# → http://localhost/docs         Swagger UI
 ```
 
 ### Frontend (development)
@@ -259,12 +282,12 @@ npm run build      # type-check and build to dist/
 │   └── pyproject.toml / uv.lock
 └── frontend/                    # React dashboard
     ├── src/
-    │   ├── api/                 # typed API client + data hooks
+    │   ├── api/                 # typed API client, data hooks, endpoint definitions
     │   ├── charts/              # price and candlestick charts
     │   ├── components/          # layout, table, shared UI
-    │   ├── pages/               # Overview, Price history, Previous day, Candles, API keys, API explorer
+    │   ├── pages/               # market pages + developer pages (Docs, API keys, API explorer)
     │   ├── state/               # saved key + usage counter, theme
-    │   └── lib/                 # formatting, statistics, CSV
+    │   └── lib/                 # formatting, statistics, CSV, code snippets
     ├── vite.config.ts
     └── package.json
 ```

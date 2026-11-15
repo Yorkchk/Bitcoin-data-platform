@@ -1,7 +1,8 @@
-import { Link, Route, Routes } from 'react-router-dom'
+import { Link, Navigate, Route, Routes } from 'react-router-dom'
 import { Layout } from './components/Layout'
 import { EmptyState } from './components/ui'
 import { Candles } from './pages/Candles'
+import { Docs } from './pages/Docs'
 import { Explorer } from './pages/Explorer'
 import { Keys } from './pages/Keys'
 import { Live } from './pages/Live'
@@ -16,8 +17,12 @@ export function App() {
         <Route path="history" element={<PriceHistory />} />
         <Route path="live" element={<Live />} />
         <Route path="candles" element={<Candles />} />
-        <Route path="explorer" element={<Explorer />} />
-        <Route path="keys" element={<Keys />} />
+        <Route path="developers" element={<Docs />} />
+        <Route path="developers/keys" element={<Keys />} />
+        <Route path="developers/explorer" element={<Explorer />} />
+        {/* Earlier addresses */}
+        <Route path="keys" element={<Navigate to="/developers/keys" replace />} />
+        <Route path="explorer" element={<Navigate to="/developers/explorer" replace />} />
         <Route
           path="*"
           element={

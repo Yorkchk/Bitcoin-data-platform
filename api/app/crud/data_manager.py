@@ -31,6 +31,10 @@ class DataManager():
     
     def check_rate_limit(self, keyname_provided):
         return self.r.check_rate_limit(keyname_provided)
+
+    def check_ip_limit(self, ip: str):
+        """Per-visitor limit for the keyless public endpoints used by the website."""
+        return self.r.check_ip_limit(ip)
     
     def increment_request_count(self, keyname_provided: str):
         return self.r.increment_request_count(keyname_provided)

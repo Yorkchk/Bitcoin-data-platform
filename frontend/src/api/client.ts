@@ -79,6 +79,10 @@ export function extractDetail(body: unknown): string | null {
   return null
 }
 
+/** A 429 from the public (keyless) endpoints is a per-visitor limit, not a key's daily quota. */
+const PUBLIC_RATE_LIMIT_MESSAGE =
+  'Too many requests from your network. Wait a few minutes and try again.'
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response
   try {
@@ -96,7 +100,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       /* non-JSON error body */
     }
     const message =
-      kind === 'bad-request' && detail ? `${FRIENDLY[kind]} (${detail})` : FRIENDLY[kind]
+      kind === 'rate-limited' && path.startsWith('/public/')
+        ? PUBLIC_RATE_LIMIT_MESSAGE
+        : kind === 'bad-request' && detail
+          ? `${FRIENDLY[kind]} (${detail})`
+          : FRIENDLY[kind]
     throw new ApiError(res.status, kind, message)
   }
   return (await res.json()) as T
@@ -147,6 +155,24 @@ export function getHistoryOhlc(
 
 export function getLiveOhlc(creds: Credentials, params: RangeParams = {}, signal?: AbortSignal) {
   return request<OhlcRow[]>(`/get_liveOhlc?${buildQuery(creds, params, 'time')}`, { signal })
+}
+
+// ---- Public endpoints: used by the website, no API key, limited per visitor IP ----
+
+export function getPublicHistoryChart(signal?: AbortSignal) {
+  return request<ChartRow[]>('/public/history-chart', { signal })
+}
+
+export function getPublicLiveChart(signal?: AbortSignal) {
+  return request<ChartRow[]>('/public/live-chart', { signal })
+}
+
+export function getPublicHistoryOhlc(signal?: AbortSignal) {
+  return request<OhlcRow[]>('/public/history-ohlc', { signal })
+}
+
+export function getPublicLiveOhlc(signal?: AbortSignal) {
+  return request<OhlcRow[]>('/public/live-ohlc', { signal })
 }
 
 /** The API returns UTC datetimes with no zone marker; parse them as UTC. */
