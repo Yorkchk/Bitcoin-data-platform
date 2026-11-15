@@ -42,7 +42,8 @@ class DataManager():
     def reset_daily_limit(self):
         return self.r.reset_daily_limit()
     
-    def get_chart(self,type : str, limit : int, start: str, end: str):
+    def get_chart(self,type : str, limit : int, start: str, end: str, ttl: int = 300):
+        """`ttl` is how long a database result stays in Redis (default 5 minutes)."""
         chart_data = self.r.cache_chart(type, limit, start, end)
         if chart_data:
             return chart_data
@@ -55,10 +56,11 @@ class DataManager():
                 data = self.chart_service.get_chart_history(limit, start, end)
             
             json_data = json.dumps([item.model_dump(mode='json') for item in data])
-            self.r.set_key(redis_key, json_data, ex=300)  # Cache for 5 minutes
+            self.r.set_key(redis_key, json_data, ex=ttl)
             return data
-        
-    def get_ohlc(self,type : str, limit : int, start: str, end: str):
+
+    def get_ohlc(self,type : str, limit : int, start: str, end: str, ttl: int = 300):
+        """`ttl` is how long a database result stays in Redis (default 5 minutes)."""
         ohlc_data = self.r.cache_ohlc(type, limit, start, end)
         if ohlc_data:
             return ohlc_data
@@ -70,7 +72,7 @@ class DataManager():
                 data = self.ohlc_service.get_ohlc_history(limit, start, end)
             
             json_data = json.dumps([item.model_dump() for item in data])
-            self.r.set_key(redis_key, json_data, ex=300)  # Cache for 5 minutes
+            self.r.set_key(redis_key, json_data, ex=ttl)
             return data
         
     
