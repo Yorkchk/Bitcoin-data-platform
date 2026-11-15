@@ -1,0 +1,191 @@
+@import 'tailwindcss';
+
+/* ---- Theme tokens -------------------------------------------------------
+   Light values are the default. Dark values apply when the OS asks for dark
+   (unless the toggle forces light) and whenever the toggle forces dark. */
+:root {
+  color-scheme: light;
+  --page: #f9f9f7;
+  --surface: #fcfcfb;
+  --surface-2: #f1f0ec;
+  --ink: #0b0b0b;
+  --ink-2: #52514e;
+  --ink-3: #6b6a65;
+  --line: #e1e0d9;
+  --axis: #c3c2b7;
+  --border: rgba(11, 11, 11, 0.1);
+  --brand: #f7931a;
+  --series: #2a78d6;
+  --series-soft: rgba(42, 120, 214, 0.14);
+  --up: #0ca30c;
+  --down: #d03b3b;
+  --up-text: #006300;
+  --down-text: #b02a2a;
+  --warn: #fab219;
+  --focus: #2a78d6;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+    --page: #0d0d0d;
+    --surface: #1a1a19;
+    --surface-2: #252523;
+    --ink: #f0efec;
+    --ink-2: #c3c2b7;
+    --ink-3: #9a988f;
+    --line: #2c2c2a;
+    --axis: #383835;
+    --border: rgba(255, 255, 255, 0.1);
+    --series: #3987e5;
+    --series-soft: rgba(57, 135, 229, 0.18);
+    --up-text: #0ca30c;
+    --down-text: #e66767;
+    --focus: #6da7ec;
+  }
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --page: #0d0d0d;
+  --surface: #1a1a19;
+  --surface-2: #252523;
+  --ink: #f0efec;
+  --ink-2: #c3c2b7;
+  --ink-3: #9a988f;
+  --line: #2c2c2a;
+  --axis: #383835;
+  --border: rgba(255, 255, 255, 0.1);
+  --series: #3987e5;
+  --series-soft: rgba(57, 135, 229, 0.18);
+  --up-text: #0ca30c;
+  --down-text: #e66767;
+  --focus: #6da7ec;
+}
+
+@theme inline {
+  --color-page: var(--page);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-line: var(--line);
+  --color-axis: var(--axis);
+  --color-hairline: var(--border);
+  --color-brand: var(--brand);
+  --color-series: var(--series);
+  --color-series-soft: var(--series-soft);
+  --color-up: var(--up);
+  --color-down: var(--down);
+  --color-up-text: var(--up-text);
+  --color-down-text: var(--down-text);
+  --color-warn: var(--warn);
+  --font-sans: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: ui-monospace, 'Cascadia Code', 'SF Mono', Menlo, Consolas, monospace;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* Shared building blocks. In the components layer so utilities (h-8, px-0, w-40) can override them. */
+@layer components {
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    height: 2.25rem;
+    padding: 0 0.9rem;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--ink);
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .btn:hover:not(:disabled) {
+    background: var(--surface-2);
+  }
+  .btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .btn-primary {
+    background: var(--ink);
+    color: var(--page);
+    border-color: var(--ink);
+  }
+  .btn-primary:hover:not(:disabled) {
+    background: var(--ink-2);
+    border-color: var(--ink-2);
+  }
+  .btn-danger {
+    color: var(--down-text);
+  }
+
+  .field {
+    height: 2.25rem;
+    width: 100%;
+    padding: 0 0.7rem;
+    border-radius: 8px;
+    border: 1px solid var(--axis);
+    background: var(--surface);
+    color: var(--ink);
+    font-size: 0.875rem;
+  }
+  .field::placeholder {
+    color: var(--ink-3);
+  }
+  .label {
+    display: block;
+    margin-bottom: 0.3rem;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: var(--ink-2);
+  }
+}
+
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes pulse-soft {
+  50% {
+    opacity: 0.45;
+  }
+}
+.skeleton {
+  background: var(--surface-2);
+  border-radius: 8px;
+  animation: pulse-soft 1.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+  }
+}

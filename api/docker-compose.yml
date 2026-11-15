@@ -11,9 +11,10 @@ services:
       - bitcoin-network
   
   nginx:
+    # Context is the repo root so the image can build ../frontend and serve it.
     build:
-      context: ./nginx
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: api/nginx/Dockerfile
     ports:
       - "80:80"
     volumes:

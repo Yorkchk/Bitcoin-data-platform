@@ -1,12 +1,12 @@
-# ₿ Bitcoin Data Platform — Azure Databricks Lakehouse + FastAPI
+# ₿ Bitcoin Data Platform — Azure Databricks Lakehouse + FastAPI + React
 
 An end-to-end data platform that ingests Bitcoin market data from the **CoinGecko API**, refines it through a
 **Medallion lakehouse** (raw → bronze → silver → gold) on **Azure Databricks + ADLS Gen2**, models it as a
-**star schema**, publishes it to **Azure SQL Database**, and serves it through a **rate-limited, Redis-cached
-REST API** built with **FastAPI**.
+**star schema**, publishes it to **Azure SQL Database**, serves it through a **rate-limited, Redis-cached
+REST API** built with **FastAPI**, and shows it in a **React dashboard**.
 
 ```
-CoinGecko API ──► Databricks (PySpark / Spark SQL / Delta Lake) ──► Azure SQL Database ──► FastAPI + Redis ──► Clients
+CoinGecko API ──► Databricks (PySpark / Spark SQL / Delta Lake) ──► Azure SQL Database ──► FastAPI + Redis ──► React dashboard / API clients
 ```
 
 ## Why this project exists
@@ -27,6 +27,7 @@ structure. That makes problems like incremental loads, time-grain alignment and 
 |---|---|---|
 | **Data pipeline** | [`pipeline/`](pipeline/) | 5 Databricks notebooks: ingestion, Auto Loader, cleaning, dimensional modelling, export |
 | **REST API** | [`api/`](api/) | FastAPI service exposing the gold layer, with API keys, rate limiting and caching |
+| **Frontend** | [`frontend/`](frontend/) | React dashboard: price and candlestick charts, API key management and an API explorer |
 
 ---
 
@@ -53,7 +54,7 @@ flowchart LR
         end
         SQL[(Azure SQL Database)]
         subgraph ACA[Docker · Azure Container Apps]
-            NG[Nginx] --> API[FastAPI]
+            NG[Nginx<br/>+ React frontend] --> API[FastAPI]
             API <--> RD[(Redis)]
         end
     end
@@ -61,7 +62,7 @@ flowchart LR
     CG --> N1 --> R --> N2 --> B --> N3 --> S --> N4 --> G --> N5 --> SQL
     KV -. API key, SAS token, SQL creds .-> DBX
     SQL --> API
-    Client([API consumers]) --> NG
+    Client([Browser / API consumers]) --> NG
 ```
 
 ---
@@ -74,6 +75,7 @@ flowchart LR
 | Processing | PySpark, Spark SQL, Delta Lake, Databricks Auto Loader (`cloudFiles`), Unity Catalog |
 | Modelling | Medallion architecture, Kimball star schema (facts + conformed dimensions) |
 | API | Python 3.13, FastAPI, SQLModel / SQLAlchemy, pyodbc (ODBC Driver 18), Pydantic |
+| Frontend | React 19, TypeScript, Vite, TanStack Query, Lightweight Charts, Tailwind CSS, Vitest |
 | Caching & limits | Redis (response cache, auth cache, per-key usage counters) |
 | Packaging | Docker, Docker Compose, Nginx reverse proxy, uv |
 
@@ -134,7 +136,7 @@ A FastAPI service that reads the gold star schema from Azure SQL Database and re
 - **Redis caching.** Query results and authenticated keys are cached for 5 minutes, so repeated requests skip the database.
 - **Write-behind sync.** A background task runs every 15 minutes and copies usage counters from Redis to SQL, so the API never writes to the database on the request path. Another task resets the counters every day.
 - **Layered design.** Routers, a `DataManager` facade, per-domain services, SQLModel models and Pydantic schemas are kept separate, with dependencies injected for the DB session and Redis.
-- **Containerised.** Docker Compose runs Nginx, the app and Redis together. The same three containers run on Azure Container Apps.
+- **Containerised.** Docker Compose runs Nginx, the app and Redis together. Nginx also serves the frontend. The same three containers run on Azure Container Apps.
 
 ### Endpoints
 
@@ -175,6 +177,32 @@ Error codes: `404` means the key name or API key is invalid, `429` means the dai
 
 ---
 
+## 3. Frontend (`frontend/`)
+
+A React single-page app that uses all five API endpoints. Nginx serves it at `/` and forwards its calls to
+FastAPI under `/api/`, so the browser talks to one origin and the API needs no CORS setup. The API's original
+paths (`/get_historyChart`, `/docs`, ...) still work.
+
+| Page | Endpoint(s) | What it shows |
+|---|---|---|
+| **Overview** | all four `GET` endpoints | Latest price, 24h change and range, market cap, volume, price chart, recent candles, previous-day summary |
+| **Price history** | `GET /get_historyChart` | Hourly price, market cap or volume with a date filter, sortable table and CSV export |
+| **Previous day** | `GET /get_liveChart` | Intraday chart for the last loaded day, with a time filter |
+| **Candles** | `GET /get_historyOhlc`, `GET /get_liveOhlc` | Candlestick charts: 4-hour for 30 days, 30-minute for the previous day |
+| **API keys** | `PUT /generareApi/` | Create a key (shown once), or use an existing one. The key is saved in the browser |
+| **API explorer** | all five | Send any request with your own parameters; see status, timing, JSON and the matching `curl` |
+
+**Design notes**
+- **Built around the rate limit.** Every data call counts against 100 requests a day, so the dashboards fetch each
+  dataset once, keep it for 30 minutes and filter ranges in the browser. Normal browsing uses about four requests.
+- **Honest usage counter.** The API has no usage endpoint, so the header shows the browser's own tally of requests
+  made with the saved key.
+- **Clear failure states** for an invalid key (`404`), the daily limit (`429`), a taken key name (`401`) and the
+  database waking up from auto-pause.
+- **Light and dark themes**, following the system setting with a manual switch. Works at phone width.
+
+---
+
 ## Getting started
 
 ### Pipeline (Azure Databricks)
@@ -192,7 +220,18 @@ REDIS_HOST=redis
 REDIS_PORT=6379
 EOF
 docker compose up --build
-# → http://localhost/docs
+# → http://localhost/       dashboard
+# → http://localhost/docs   Swagger UI
+```
+
+### Frontend (development)
+`docker compose up` already builds and serves the frontend. To work on it with hot reload:
+```bash
+cd frontend
+npm install
+npm run dev        # http://localhost:5173, proxies /api to the containers on port 80
+npm test           # unit tests
+npm run build      # type-check and build to dist/
 ```
 
 ---
@@ -207,17 +246,27 @@ docker compose up --build
 │   ├── bronze_to_silver.ipynb
 │   ├── silver_to_gold.ipynb
 │   └── gold_to_SQLserver.ipynb
-└── api/                         # FastAPI service
-    ├── app/
-    │   ├── main.py              # routes + background schedulers
-    │   ├── core/                # settings, DB engine, Redis client
-    │   ├── crud/                # services: chart, ohlc, api keys, redis, DataManager
-    │   ├── db/                  # SQLModel tables mapped to the gold star schema
-    │   └── schemas/             # Pydantic response/request models
-    ├── nginx/                   # reverse-proxy config
-    ├── Dockerfile
-    ├── docker-compose.yml
-    └── pyproject.toml / uv.lock
+├── api/                         # FastAPI service
+│   ├── app/
+│   │   ├── main.py              # routes + background schedulers
+│   │   ├── core/                # settings, DB engine, Redis client
+│   │   ├── crud/                # services: chart, ohlc, api keys, redis, DataManager
+│   │   ├── db/                  # SQLModel tables mapped to the gold star schema
+│   │   └── schemas/             # Pydantic response/request models
+│   ├── nginx/                   # reverse proxy; its image also builds and serves the frontend
+│   ├── Dockerfile
+│   ├── docker-compose.yml
+│   └── pyproject.toml / uv.lock
+└── frontend/                    # React dashboard
+    ├── src/
+    │   ├── api/                 # typed API client + data hooks
+    │   ├── charts/              # price and candlestick charts
+    │   ├── components/          # layout, table, shared UI
+    │   ├── pages/               # Overview, Price history, Previous day, Candles, API keys, API explorer
+    │   ├── state/               # saved key + usage counter, theme
+    │   └── lib/                 # formatting, statistics, CSV
+    ├── vite.config.ts
+    └── package.json
 ```
 
 ---

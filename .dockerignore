@@ -1,0 +1,10 @@
+# Used when the build context is the repository root (the nginx + frontend image).
+.git
+.idea
+**/node_modules
+**/dist
+**/.venv
+**/__pycache__
+**/.env
+**/*.local
+pipeline
