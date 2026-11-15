@@ -1,0 +1,70 @@
+# nginx config template. At container start, the nginx image fills in ${API_UPSTREAM}
+# (only variables that exist in the environment are replaced, so nginx's own
+# $host, $remote_addr, ... are left alone) and writes /etc/nginx/conf.d/default.conf.
+#
+#   docker compose:        API_UPSTREAM=app:8000        (default, set in the Dockerfile)
+#   Azure Container Apps:  API_UPSTREAM=127.0.0.1:8000  (containers of one app share localhost;
+#                          the IPv4 address avoids a failed try on IPv6 ::1 first)
+
+server {
+    listen 80;
+    server_name _;
+
+    # 1. Logging
+    access_log /var/log/nginx/access.log;
+    error_log /var/log/nginx/error.log;
+
+    # 2. Real visitor IP. In Azure, requests arrive through the platform's proxy,
+    #    which adds the visitor's address to X-Forwarded-For. Trust that header only
+    #    from private networks (where the proxy lives); real_ip_recursive skips
+    #    trusted hops from the right, so an address a visitor puts in the header
+    #    themselves cannot replace the one the proxy added. $remote_addr then holds
+    #    the visitor's IP, which is sent to the API as X-Real-IP for the public
+    #    endpoints' per-IP limit.
+    set_real_ip_from 10.0.0.0/8;
+    set_real_ip_from 172.16.0.0/12;
+    set_real_ip_from 192.168.0.0/16;
+    set_real_ip_from 100.64.0.0/10;
+    set_real_ip_from 127.0.0.1;
+    real_ip_header X-Forwarded-For;
+    real_ip_recursive on;
+
+    # 3. Headers and timeouts for every proxied request
+    #    (timeouts are generous: the SQL database can take a while to wake up)
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_connect_timeout 90;
+    proxy_send_timeout 90;
+    proxy_read_timeout 90;
+
+    # 4. API for the frontend: /api/get_liveChart -> API /get_liveChart
+    location /api/ {
+        proxy_pass http://${API_UPSTREAM}/;
+    }
+
+    # 5. The API's original root paths keep working (Swagger UI, existing clients, curl examples)
+    location ~ ^/(generareApi|get_historyChart|get_liveChart|get_historyOhlc|get_liveOhlc|docs|redoc|openapi\.json)(/|$) {
+        proxy_pass http://${API_UPSTREAM};
+    }
+
+    # 6. Frontend (static files built into the image)
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # Hashed build assets never change, so browsers can cache them for good
+    location /assets/ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+        try_files $uri =404;
+    }
+
+    # Client-side routes (/history, /developers, ...) all load the app shell
+    location / {
+        try_files $uri /index.html;
+    }
+
+    # 7. Max request body size (default is only 1MB)
+    client_max_body_size 20M;
+}
