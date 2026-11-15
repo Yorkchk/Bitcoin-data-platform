@@ -227,6 +227,93 @@ so the browser talks to one origin and the API needs no CORS setup. The API's or
 
 ## Getting started
 
+### Run the app locally (step by step)
+
+This runs the website (dashboard + developer portal), the API and Redis on your machine with Docker. The data
+comes from the Azure SQL database that the pipeline fills, so that database must exist and have been loaded at
+least once (see *Pipeline* below).
+
+**Prerequisites**
+- [Git](https://git-scm.com/)
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/), running
+- Access to the Azure SQL database (server name, database name, SQL username and password)
+- Optional: [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli) for the firewall step, and
+  [Node.js](https://nodejs.org/) 22+ only if you want to work on the frontend with hot reload
+
+**1. Clone the repository**
+```bash
+git clone https://github.com/Yorkchk/Bitcoin-data-platform.git
+cd Bitcoin-data-platform
+```
+
+**2. Allow your IP address on the SQL server** (Azure SQL blocks unknown addresses)
+```bash
+IP=$(curl -s https://api.ipify.org)
+az sql server firewall-rule create -g <resource-group> -s <sql-server-name> -n MyPC \
+  --start-ip-address $IP --end-ip-address $IP
+```
+You can also do this in the Azure portal: SQL server → **Networking** → **Add your client IPv4 address**.
+If you use a VPN that changes your IP (for example Cloudflare WARP), repeat this when it changes.
+
+**3. Create the API keys table (first time only)**
+
+The pipeline creates the `gold_*` tables, but the API's own `api_keys` table has to be created once.
+Run this in the Azure portal (SQL database → **Query editor**):
+```sql
+CREATE TABLE api_keys (
+  key_name            NVARCHAR(50)  PRIMARY KEY,
+  key_value           NVARCHAR(MAX) NOT NULL,
+  created_at          DATETIME2     NOT NULL DEFAULT SYSDATETIME(),
+  is_active           BIT           NOT NULL DEFAULT 1,
+  rate_limit_per_day  INT           NOT NULL DEFAULT 100,
+  requests_made_today INT           NOT NULL DEFAULT 0,
+  last_request_date   DATETIME2     NULL,
+  owner_email         NVARCHAR(255) NULL
+);
+```
+
+**4. Create `api/app/.env`** with the database connection (this file is gitignored, never commit it)
+```bash
+cat > api/app/.env <<'EOF'
+DATABASE_URL=mssql+pyodbc://<user>:<password>@<sql-server-name>.database.windows.net:1433/<database>?driver=ODBC+Driver+18+for+SQL+Server&Encrypt=yes&TrustServerCertificate=no&Connection+Timeout=60
+REDIS_HOST=redis
+REDIS_PORT=6379
+EOF
+```
+If the password contains special characters (`@`, `#`, `/`, `!`, ...), URL-encode them (for example `@` → `%40`).
+
+**5. Build and start everything**
+```bash
+cd api
+docker compose up -d --build
+```
+The first build takes a few minutes (it builds the frontend, the API image with the SQL Server driver, and pulls
+Redis). Later starts are quick; drop `--build` unless the code changed.
+
+**6. Open the app**
+
+| Address | What |
+|---|---|
+| http://localhost/ | Bitcoin dashboard, no key needed |
+| http://localhost/developers | API docs, with curl / Python / JavaScript examples |
+| http://localhost/developers/keys | Create an API key to call the API from your own code |
+| http://localhost/developers/explorer | Send API requests from the browser |
+| http://localhost/docs | Swagger UI |
+
+**7. Stop it**
+```bash
+docker compose down        # from the api/ folder
+```
+
+**Troubleshooting**
+- **First load is slow or shows "the database is waking up":** the serverless database pauses when idle and takes
+  up to a minute to resume. Wait and press *Try again*.
+- **Data never loads, and `docker compose logs app` shows `Client with IP address ... is not allowed`:** your IP
+  changed; repeat step 2.
+- **The `app` container stops right away:** `api/app/.env` is missing or malformed (step 4).
+- **Port 80 is already in use:** stop the other program using it, or change `"80:80"` to e.g. `"8080:80"` in
+  `api/docker-compose.yml` and open http://localhost:8080/.
+
 ### Pipeline (Azure Databricks)
 1. Provision an **ADLS Gen2** account with `raw`, `bronze`, `silver` and `gold` containers, an **Azure SQL Database**, and a **Key Vault**.
 2. Create a Databricks secret scope called `Connectors`, backed by the Key Vault, with these keys: `api-key` (CoinGecko demo key), `SAS-token`, `username` and `sqlpassword`.
