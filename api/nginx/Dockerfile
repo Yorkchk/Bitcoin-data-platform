@@ -15,5 +15,10 @@ FROM nginx:alpine
 # Delete the default config to be absolutely sure
 RUN rm /etc/nginx/conf.d/default.conf
 
-COPY api/nginx/nginx.conf /etc/nginx/conf.d/default.conf
+# Where the API listens. Compose reaches it by service name; in Azure Container
+# Apps the containers share localhost, so the app sets API_UPSTREAM=127.0.0.1:8000.
+ENV API_UPSTREAM=app:8000
+
+# Rendered to /etc/nginx/conf.d/default.conf by the image's entrypoint at start-up
+COPY api/nginx/default.conf.template /etc/nginx/templates/default.conf.template
 COPY --from=frontend /frontend/dist /usr/share/nginx/html

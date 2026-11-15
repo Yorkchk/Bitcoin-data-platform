@@ -247,6 +247,20 @@ docker compose up --build
 # → http://localhost/docs         Swagger UI
 ```
 
+### Deploying (Azure Container Apps)
+The same three containers run as one Container App. Two settings differ from docker compose:
+
+| Container | Setting | Compose | Container Apps |
+|---|---|---|---|
+| `nginx` | `API_UPSTREAM` | `app:8000` (image default) | `127.0.0.1:8000` (containers of one app share localhost) |
+| `app` | `REDIS_HOST` | `redis` | `127.0.0.1` |
+
+Store `DATABASE_URL` as a Container App **secret** (`secretref:`), not a plain environment variable, and keep
+the app at **one replica**: Redis runs inside the app, and the background sync jobs should run once.
+Behind Azure's ingress, nginx takes the visitor's IP from `X-Forwarded-For` (trusted only from private
+networks), so the public endpoints' per-IP limit applies per visitor. The site uses relative URLs, so it works
+unchanged on any domain.
+
 ### Frontend (development)
 `docker compose up` already builds and serves the frontend. To work on it with hot reload:
 ```bash
