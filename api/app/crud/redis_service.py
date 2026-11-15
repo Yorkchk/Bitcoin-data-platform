@@ -4,6 +4,7 @@ from schemas.schemas import chart_schema, ohlc_schema
 from pydantic import ValidationError
 from db import APIkey
 from datetime import datetime
+from .utilities import verify_APIkey_hashedkey
 
 
 class RedisService:
@@ -25,9 +26,22 @@ class RedisService:
         redis_value = self.get_value(redis_key)
         if redis_value is None:
             return False
-        else:
-            return redis_value
-            
+        # The cache entry is the APIkey row, including the salted hash. Check the
+        # key that was sent against it; a cached key name alone is not proof.
+        try:
+            cached = APIkey.model_validate_json(redis_value)
+            return verify_APIkey_hashedkey(cached.key_value, provided_key)
+        except (ValidationError, ValueError):
+            return False
+
+    def check_ip_limit(self, ip: str, limit: int = 300, window_seconds: int = 3600) -> bool:
+        """Count a request from `ip` and say whether it is within `limit` per window."""
+        redis_key = f"ipusage:{ip}"
+        count = self.r.incr(redis_key)
+        if count == 1:
+            self.r.expire(redis_key, window_seconds)
+        return count <= limit
+
     # We assume that the authenticate func is called before this one
     def check_rate_limit(self, keyname_provided: str):
         try:
