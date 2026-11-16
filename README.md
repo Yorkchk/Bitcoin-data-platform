@@ -1,5 +1,29 @@
 # ₿ Bitcoin Data Platform — Azure Databricks Lakehouse + FastAPI + React
 
+<p align="center">
+  <a href="https://bitcoin-full-stack.graymushroom-f6c082ac.canadaeast.azurecontainerapps.io/">
+    <img src="https://img.shields.io/badge/%F0%9F%8C%90%20LIVE%20DEMO-Open%20the%20app-f7931a?style=for-the-badge" alt="Live demo: open the app" height="44">
+  </a>
+</p>
+
+<h3 align="center">
+  👉 <a href="https://bitcoin-full-stack.graymushroom-f6c082ac.canadaeast.azurecontainerapps.io/">bitcoin-full-stack.graymushroom-f6c082ac.canadaeast.azurecontainerapps.io</a>
+</h3>
+
+<p align="center">
+  <a href="https://bitcoin-full-stack.graymushroom-f6c082ac.canadaeast.azurecontainerapps.io/"><b>Bitcoin dashboard</b></a> (no sign-up)
+  &nbsp;·&nbsp;
+  <a href="https://bitcoin-full-stack.graymushroom-f6c082ac.canadaeast.azurecontainerapps.io/developers"><b>API docs</b></a>
+  &nbsp;·&nbsp;
+  <a href="https://bitcoin-full-stack.graymushroom-f6c082ac.canadaeast.azurecontainerapps.io/developers/keys"><b>Get a free API key</b></a>
+  &nbsp;·&nbsp;
+  <a href="https://bitcoin-full-stack.graymushroom-f6c082ac.canadaeast.azurecontainerapps.io/docs"><b>Swagger</b></a>
+  <br>
+  <sub>The app sleeps when nobody is using it, so the first visit can take up to a minute to load.</sub>
+</p>
+
+---
+
 An end-to-end data platform that ingests Bitcoin market data from the **CoinGecko API**, refines it through a
 **Medallion lakehouse** (raw → bronze → silver → gold) on **Azure Databricks + ADLS Gen2**, models it as a
 **star schema**, publishes it to **Azure SQL Database**, serves it through a **rate-limited, Redis-cached
